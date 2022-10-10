@@ -18,18 +18,21 @@ import kotlin.math.ceil
 object PopupConfig {
 
     private const val DEFAULT_POPUP_DELAY = 200
-    private val defaultPopupDelay = when (val delay = VimPlugin.getVariableService().getGlobalVariableValue("WhichKey_DefaultDelay")) {
-        null -> DEFAULT_POPUP_DELAY
-        !is VimInt -> DEFAULT_POPUP_DELAY
-        else -> delay.value
-    }
+    private val defaultPopupDelay =
+        when (val delay = VimPlugin.getVariableService().getGlobalVariableValue("WhichKey_DefaultDelay")) {
+            null -> DEFAULT_POPUP_DELAY
+            !is VimInt -> DEFAULT_POPUP_DELAY
+            else -> delay.value
+        }
 
     private val DEFAULT_SORT_OPTION = SortOption.BY_KEY
-    private val sortOption = when (val option = VimPlugin.getVariableService().getGlobalVariableValue("WhichKey_SortOrder")) {
-        null -> DEFAULT_SORT_OPTION
-        !is VimString -> DEFAULT_SORT_OPTION
-        else -> SortOption.values().firstOrNull { it.name.equals(option.asString(), ignoreCase = true) } ?: DEFAULT_SORT_OPTION
-    }
+    private val sortOption =
+        when (val option = VimPlugin.getVariableService().getGlobalVariableValue("WhichKey_SortOrder")) {
+            null -> DEFAULT_SORT_OPTION
+            !is VimString -> DEFAULT_SORT_OPTION
+            else -> SortOption.values().firstOrNull { it.name.equals(option.asString(), ignoreCase = true) }
+                ?: DEFAULT_SORT_OPTION
+        }
 
     private var currentBalloon: Balloon? = null
     private var displayBalloonJob: Job? = null
@@ -60,7 +63,12 @@ object PopupConfig {
      * @param nestedMappings A [List] of nested mappings to display
      * @param startTime Timestamp to consider for the calculation of the popup delay
      */
-    fun showPopup(ideFrame: JFrame, typedKeys: List<KeyStroke>, nestedMappings: List<Pair<String, Mapping>>, startTime: Long) {
+    fun showPopup(
+        ideFrame: JFrame,
+        typedKeys: List<KeyStroke>,
+        nestedMappings: List<Pair<String, Mapping>>,
+        startTime: Long
+    ) {
         if (nestedMappings.isEmpty()) {
             return
         }
@@ -71,7 +79,8 @@ object PopupConfig {
          */
         val frameWidth = (ideFrame.width * 0.65).toInt()
         // check for the longest string as this will most probably be the widest mapping
-        val maxMapping = nestedMappings.maxByOrNull { (key, mapping) -> key.length + mapping.description.length }!! // (we have manually checked that 'nestedMappings' is not empty)
+        val maxMapping =
+            nestedMappings.maxByOrNull { (key, mapping) -> key.length + mapping.description.length }!! // (we have manually checked that 'nestedMappings' is not empty)
         // calculate the pixel width of the longest mapping string (with HTML formatting & styling)
         val maxStringWidth = JLabel("<html>${FormatConfig.formatMappingEntry(maxMapping)}</html>").preferredSize.width
         val possibleColumns = (frameWidth / maxStringWidth).let {
@@ -107,11 +116,12 @@ object PopupConfig {
         mappingsStringBuilder.append("</table>")
 
         // append the already typed key sequence below the nested mappings table if configured (default: true)
-        val showTypedSequence = when (val show = VimPlugin.getVariableService().getGlobalVariableValue("WhichKey_ShowTypedSequence")) {
-            null -> true
-            !is VimString -> true
-            else -> show.asBoolean()
-        }
+        val showTypedSequence =
+            when (val show = VimPlugin.getVariableService().getGlobalVariableValue("WhichKey_ShowTypedSequence")) {
+                null -> true
+                !is VimString -> true
+                else -> show.asBoolean()
+            }
         if (showTypedSequence) {
             mappingsStringBuilder.append("<hr style=\"margin-bottom: 2px;\">") // some small margin to not look cramped
             mappingsStringBuilder.append(FormatConfig.formatTypedSequence(typedKeys))
@@ -127,7 +137,12 @@ object PopupConfig {
         // the extra variable 'newWhichKeyBalloon' is needed so that the currently displayed Balloon
         // can be hidden in case the 'displayBalloonJob' gets canceled before execution
         val newWhichKeyBalloon = JBPopupFactory.getInstance()
-            .createHtmlTextBalloonBuilder(mappingsStringBuilder.toString(), null, EditorColorsManager.getInstance().schemeForCurrentUITheme.defaultBackground, null)
+            .createHtmlTextBalloonBuilder(
+                mappingsStringBuilder.toString(),
+                null,
+                EditorColorsManager.getInstance().schemeForCurrentUITheme.defaultBackground,
+                null
+            )
             .setAnimationCycle(10) // shorten animation time
             .setFadeoutTime(fadeoutTime)
             .createBalloon()
@@ -155,8 +170,9 @@ object PopupConfig {
     private fun sortMappings(nestedMappings: List<Pair<String, Mapping>>): List<Pair<String, Mapping>> {
         return when (sortOption) {
             SortOption.BY_KEY -> nestedMappings.sortedBy { it.first }
-            SortOption.BY_KEY_PREFIX_FIRST -> nestedMappings.sortedWith(compareBy ({ !it.second.prefix }, { it.first }))
+            SortOption.BY_KEY_PREFIX_FIRST -> nestedMappings.sortedWith(compareBy({ !it.second.prefix }, { it.first }))
             SortOption.BY_DESCRIPTION -> nestedMappings.sortedBy { it.second.description }
+            SortOption.BY_KEY_IGNORE_CASE -> nestedMappings.sortedWith(SortByKeyIgnoreCase)
         }
     }
 }
@@ -164,5 +180,38 @@ object PopupConfig {
 enum class SortOption {
     BY_KEY,
     BY_KEY_PREFIX_FIRST,
-    BY_DESCRIPTION
+    BY_DESCRIPTION,
+    BY_KEY_IGNORE_CASE,
+}
+
+/**
+ * 1. symbols first
+ * 2. sort by lower letter order
+ * 3. sort by letter case
+ */
+object SortByKeyIgnoreCase : Comparator<Pair<String, Mapping>> {
+    override fun compare(o1: Pair<String, Mapping>, o2: Pair<String, Mapping>): Int {
+        val key1 = o1.first.first()
+        val key2 = o2.first.first()
+
+        val isLetter1 = key1.lowercaseChar() in ('a'..'z')
+        val isLetter2 = key2.lowercaseChar() in ('a'..'z')
+
+        return if (isLetter1 && isLetter2) {
+            val r = key1.lowercaseChar().compareTo(key2.lowercaseChar())
+            if (r == 0) {
+                if (key1.isLowerCase()) -1 else 1
+            } else {
+                r
+            }
+        } else if (isLetter1) {
+            1
+        } else if (isLetter2) {
+            -1
+        } else {
+            key1.compareTo(key2)
+        }
+
+    }
+
 }
