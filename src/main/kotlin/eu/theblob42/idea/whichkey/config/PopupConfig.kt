@@ -102,7 +102,6 @@ object PopupConfig {
                     } else {
                         ""
                     }
-                    println(">>> building table: [${entry}]: [$display]")
                     append("<td width=\"${columnWidth}px\">$display</td>")
                 }
 
