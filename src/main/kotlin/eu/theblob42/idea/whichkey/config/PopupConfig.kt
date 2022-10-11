@@ -13,7 +13,6 @@ import kotlinx.coroutines.*
 import javax.swing.JFrame
 import javax.swing.JLabel
 import javax.swing.KeyStroke
-import kotlin.math.ceil
 
 object PopupConfig {
 
@@ -33,6 +32,8 @@ object PopupConfig {
             else -> SortOption.values().firstOrNull { it.name.equals(option.asString(), ignoreCase = true) }
                 ?: DEFAULT_SORT_OPTION
         }
+
+    private val maxRows = 6
 
     private var currentBalloon: Balloon? = null
     private var displayBalloonJob: Job? = null
@@ -73,47 +74,46 @@ object PopupConfig {
             return
         }
 
-        /*
-         * the factor 0.65 was found by experimenting and comparing result lengths pixel by pixel
-         * it might be erroneous and could change in the future
-         */
-        val frameWidth = (ideFrame.width * 0.65).toInt()
-        // check for the longest string as this will most probably be the widest mapping
-        val maxMapping =
-            nestedMappings.maxByOrNull { (key, mapping) -> key.length + mapping.description.length }!! // (we have manually checked that 'nestedMappings' is not empty)
-        // calculate the pixel width of the longest mapping string (with HTML formatting & styling)
-        val maxStringWidth = JLabel("<html>${FormatConfig.formatMappingEntry(maxMapping)}</html>").preferredSize.width
-        val possibleColumns = (frameWidth / maxStringWidth).let {
-            when {
-                // ensure a minimum value of 1 to avoid dividing by zero
-                it < 1 -> 1
-                // always use the full available screen space
-                it > nestedMappings.size -> nestedMappings.size
-                else -> it
-            }
-        }
-        // use as much space for every column as possible
-        val columnWidth = frameWidth / possibleColumns
+        val columns: List<List<Pair<String, Mapping>>> = sortMappings(nestedMappings)
+            .chunked(maxRows)
+            .toList()
 
-        val elementsPerColumn = ceil(nestedMappings.size / possibleColumns.toDouble()).toInt()
-        val windowedMappings = sortMappings(nestedMappings)
-            .map(FormatConfig::formatMappingEntry)
-            .windowed(elementsPerColumn, elementsPerColumn, true)
+        val table = buildString {
+            append("<table>")
 
-        // to properly align the columns within HTML use a table with fixed with cells
-        val mappingsStringBuilder = StringBuilder()
-        mappingsStringBuilder.append("<table>")
-        for (i in 0..(elementsPerColumn.dec())) {
-            mappingsStringBuilder.append("<tr>")
-            for (column in windowedMappings) {
-                val entry = column.getOrNull(i)
-                if (entry != null) {
-                    mappingsStringBuilder.append("<td width=\"${columnWidth}px\">$entry</td>")
+            for (row in 0 until maxRows) {
+                append("<tr>")
+
+                for (column in columns) {
+                    val maxMapping = column.maxByOrNull { (key, mapping) -> key.length + mapping.description.length }!!
+                    val maxKeyLength = column.maxOf { (key, _) -> key.length }
+                    // (we have manually checked that 'nestedMappings' is not empty)
+                    // calculate the pixel width of the longest mapping string (with HTML formatting & styling)
+                    val maxStringWidth =
+                        JLabel("<html>${FormatConfig.formatMappingEntry(maxMapping)}</html>").preferredSize.width
+
+                    val columnWidth = maxStringWidth + 20
+
+                    val entry = column.getOrNull(row)
+                    val display = if (entry != null) {
+                        FormatConfig.formatMappingEntry(
+                            entry.first.padStart(maxKeyLength) to entry.second
+                        )
+                    } else {
+                        ""
+                    }
+                    println(">>> building table: [${entry}]: [$display]")
+                    append("<td width=\"${columnWidth}px\">$display</td>")
                 }
+
+                append("</tr>")
             }
-            mappingsStringBuilder.append("</tr>")
+
+            append("</table>")
         }
-        mappingsStringBuilder.append("</table>")
+
+        val mappingsStringBuilder = StringBuilder()
+        mappingsStringBuilder.append(table)
 
         // append the already typed key sequence below the nested mappings table if configured (default: true)
         val showTypedSequence =

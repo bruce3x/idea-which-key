@@ -177,6 +177,7 @@ object FormatConfig {
     private fun escapeForHtml(text: String): String {
         return text
             // escape angle brackets for usage in HTML
+            .replace(" ", "&nbsp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
     }
